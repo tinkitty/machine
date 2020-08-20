@@ -37,6 +37,7 @@ type Driver struct {
 	UserDataFile      string
 	Monitoring        bool
 	Tags              string
+	VPCUUID           string
 }
 
 const (
@@ -126,6 +127,11 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:   "digitalocean-tags",
 			Usage:  "comma-separated list of tags to apply to the Droplet",
 		},
+		mcnflag.StringFlag{
+			EnvVar: "DIGITALOCEAN_VPC_UUID",
+			Name:   "digitalocean-vpc-uuid",
+			Usage:  "UUID of the VPC to assign the Droplet to",
+		},
 	}
 }
 
@@ -165,6 +171,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.SSHKey = flags.String("digitalocean-ssh-key-path")
 	d.Monitoring = flags.Bool("digitalocean-monitoring")
 	d.Tags = flags.String("digitalocean-tags")
+	d.VPCUUID = flags.String("digitalocean-vpc-uuid")
 
 	d.SetSwarmConfigFromFlags(flags)
 
@@ -193,6 +200,22 @@ func (d *Driver) PreCreateCheck() error {
 	}
 
 	client := d.getClient()
+	if d.VPCUUID != "" {
+		vpcs, _, err := client.VPCs.List(context.TODO(), nil)
+		if err != nil {
+			return err
+		}
+		var IDfound bool = false
+		for _, vpc := range vpcs {
+			if vpc.ID == d.VPCUUID {
+				IDfound = true
+			}
+		}
+		if !IDfound {
+			return fmt.Errorf("VPC UUID does not exist: %q", d.VPCUUID)
+		}
+	}
+
 	regions, _, err := client.Regions.List(context.TODO(), nil)
 	if err != nil {
 		return err
@@ -241,6 +264,7 @@ func (d *Driver) Create() error {
 		SSHKeys:           []godo.DropletCreateSSHKey{{ID: d.SSHKeyID}},
 		Monitoring:        d.Monitoring,
 		Tags:              d.getTags(),
+		VPCUUID:           d.VPCUUID,
 	}
 
 	newDroplet, _, err := client.Droplets.Create(context.TODO(), createRequest)
